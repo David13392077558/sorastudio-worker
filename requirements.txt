@@ -1,0 +1,11 @@
+torch
+torchvision
+torchaudio
+numpy
+pillow
+opencv-python
+ffmpeg-python
+redis
+onnxruntime
+insightface
+gfpgan
