@@ -1,231 +1,244 @@
 import os
 import json
 import time
-import redis
-import ffmpeg
 from pathlib import Path
 
-# Redis连接
-redis_host = os.getenv('REDIS_HOST', 'localhost')
-redis_port = int(os.getenv('REDIS_PORT', 6379))
-redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+import redis
+import requests
 
-def process_video_task(task_data):
-    """
-    处理视频生成和处理任务
-    支持：视频切片、合并、风格迁移、数字人合成等
-    """
-    print(f"正在处理任务: {task_data}")
+# =========================
+# Redis 连接
+# =========================
+redis_host = os.getenv("REDIS_HOST", "localhost")
+redis_port = int(os.getenv("REDIS_PORT", 6379))
+redis_password = os.getenv("REDIS_PASSWORD") or None
 
-    task_type = task_data.get('type')
-    task_id = task_data.get('task_id')
+redis_client = redis.Redis(
+    host=redis_host,
+    port=redis_port,
+    password=redis_password,
+    decode_responses=True,
+)
+
+# =========================
+# HuggingFace Inference API 配置
+# =========================
+HF_API_URL = os.getenv("HF_API_URL")  # 例如: https://api-inference.huggingface.co/models/xxx/xxx
+HF_API_KEY = os.getenv("HF_API_KEY")  # 你的 HuggingFace Token
+
+if not HF_API_URL or not HF_API_KEY:
+    print("⚠️ 未配置 HF_API_URL 或 HF_API_KEY，Worker 启动后将无法调用模型 API。")
+
+
+def call_hf_inference(payload: dict) -> dict:
+    """
+    调用 HuggingFace Inference API 的通用函数
+    payload: 传给模型的参数（prompt、参数等）
+    """
+    headers = {
+        "Authorization": f"Bearer {HF_API_KEY}",
+        "Content-Type": "application/json",
+    }
 
     try:
-        if task_type == 'video_generation':
-            # 视频生成任务
-            result = generate_video_with_sora(task_data)
-        elif task_type == 'video_analysis':
-            # 视频分析任务
-            result = analyze_video_style(task_data)
-        elif task_type == 'digital_human':
-            # 数字人合成任务
-            result = generate_digital_human_video(task_data)
-        elif task_type == 'video_processing':
-            # 视频处理任务（切片、合并等）
-            result = process_video_file(task_data)
+        resp = requests.post(HF_API_URL, headers=headers, json=payload, timeout=600)
+        resp.raise_for_status()
+        return {
+            "success": True,
+            "data": resp.json(),
+            "status_code": resp.status_code,
+        }
+    except requests.RequestException as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "status_code": getattr(e.response, "status_code", None),
+        }
+
+
+def process_video_task(task_data: dict):
+    """
+    处理“视频相关任务”的统一入口
+    现在不做本地视频处理，只负责：
+    - 解析任务
+    - 调用 HuggingFace Inference API
+    - 回写结果
+    """
+    print(f"🎯 正在处理任务: {task_data}")
+
+    task_type = task_data.get("type")
+    task_id = task_data.get("task_id")
+
+    if not task_id:
+        print("⚠️ 任务缺少 task_id，跳过")
+        return
+
+    try:
+        # 根据任务类型构造不同的 payload
+        if task_type == "video_generation":
+            payload = build_video_generation_payload(task_data)
+        elif task_type == "video_analysis":
+            payload = build_video_analysis_payload(task_data)
+        elif task_type == "digital_human":
+            payload = build_digital_human_payload(task_data)
+        elif task_type == "video_processing":
+            payload = build_video_processing_payload(task_data)
         else:
             raise ValueError(f"未知任务类型: {task_type}")
 
-        # 更新任务状态为完成
-        update_task_status(task_id, 'completed', 100, result)
-        print(f"任务完成: {task_id}")
+        # 调用 HuggingFace Inference API
+        hf_result = call_hf_inference(payload)
+
+        if hf_result["success"]:
+            update_task_status(
+                task_id,
+                status="completed",
+                progress=100,
+                result=hf_result["data"],
+            )
+            print(f"✅ 任务完成: {task_id}")
+        else:
+            update_task_status(
+                task_id,
+                status="failed",
+                progress=0,
+                error=hf_result["error"],
+            )
+            print(f"❌ 任务失败: {task_id}, 错误: {hf_result['error']}")
 
     except Exception as e:
-        print(f"任务失败: {task_id}, 错误: {str(e)}")
-        update_task_status(task_id, 'failed', 0, None, str(e))
+        print(f"❌ 任务异常: {task_id}, 错误: {str(e)}")
+        update_task_status(task_id, "failed", 0, None, str(e))
 
-def generate_video_with_sora(task_data):
+
+# =========================
+# 各类任务的 payload 构造函数
+# =========================
+
+def build_video_generation_payload(task_data: dict) -> dict:
     """
-    使用Sora或其他模型生成视频
-    这里是模拟实现，实际需要集成真实的AI模型API
+    构造视频生成任务的 payload
+    这里你可以根据你实际使用的模型 API 格式来调整
     """
-    prompt = task_data.get('prompt', '')
-    style = task_data.get('style', 'cinematic')
-    duration = task_data.get('duration', 5)
-
-    print(f"生成视频 - 提示词: {prompt}, 风格: {style}, 时长: {duration}s")
-
-    # 模拟视频生成过程
-    time.sleep(5)  # 模拟处理时间
-
-    # 这里应该调用真实的Sora API或ComfyUI等
-    # 暂时返回模拟结果
-    return {
-        'video_url': f'/generated/{task_data.get("task_id")}.mp4',
-        'thumbnail_url': f'/thumbnails/{task_data.get("task_id")}.jpg',
-        'duration': duration,
-        'resolution': '1920x1080',
-        'format': 'mp4'
-    }
-
-def analyze_video_style(task_data):
-    """
-    分析视频风格
-    """
-    video_path = task_data.get('video_path')
-
-    if not video_path or not os.path.exists(video_path):
-        raise FileNotFoundError(f"视频文件不存在: {video_path}")
-
-    print(f"分析视频风格: {video_path}")
-
-    # 使用OpenCV分析视频
-    cap = cv2.VideoCapture(video_path)
-    frames = []
-
-    # 抽取关键帧
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-
-    for i in range(0, frame_count, int(fps)):  # 每秒抽一帧
-        cap.set(cv2.CAP_PROP_POS_FRAMES, i)
-        ret, frame = cap.read()
-        if ret:
-            frames.append(frame)
-
-    cap.release()
-
-    # 简单的风格分析（实际应该使用AI模型）
-    style_tags = []
-    if len(frames) > 0:
-        # 分析色彩、构图等
-        avg_brightness = sum(cv2.mean(frame)[0] for frame in frames) / len(frames)
-        if avg_brightness > 150:
-            style_tags.append('明亮')
-        elif avg_brightness < 100:
-            style_tags.append('暗色调')
-
-        # 简单的运动检测
-        motion_score = 0
-        for i in range(1, len(frames)):
-            diff = cv2.absdiff(frames[i-1], frames[i])
-            motion_score += cv2.mean(diff)[0]
-
-        if motion_score / len(frames) > 50:
-            style_tags.append('动态')
-        else:
-            style_tags.append('静态')
+    prompt = task_data.get("prompt", "")
+    style = task_data.get("style", "cinematic")
+    duration = task_data.get("duration", 5)
 
     return {
-        'style_tags': style_tags,
-        'frame_count': len(frames),
-        'fps': fps,
-        'duration': frame_count / fps if fps > 0 else 0,
-        'resolution': f"{int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}"
+        "inputs": prompt,
+        "parameters": {
+            "style": style,
+            "duration": duration,
+            # 这里可以根据模型文档添加更多参数
+        },
+        "options": {
+            "wait_for_model": True
+        }
     }
 
-def generate_digital_human_video(task_data):
+
+def build_video_analysis_payload(task_data: dict) -> dict:
     """
-    生成数字人视频
-    需要集成Wav2Lip、SadTalker等模型
+    构造视频分析任务的 payload
+    注意：这里不再读取本地文件路径，而是使用远程 URL 或上游传入的标识
     """
-    script = task_data.get('script', '')
-    avatar_image = task_data.get('avatar_image')
-
-    print(f"生成数字人视频 - 脚本: {script[:50]}...")
-
-    # 模拟数字人生成过程
-    time.sleep(10)
-
-    # 这里应该调用真实的数字人生成API
-    return {
-        'video_url': f'/digital_human/{task_data.get("task_id")}.mp4',
-        'audio_url': f'/audio/{task_data.get("task_id")}.wav',
-        'lip_sync_score': 0.95,
-        'processing_time': 10
-    }
-
-def process_video_file(task_data):
-    """
-    处理视频文件：切片、合并、水印等
-    """
-    operation = task_data.get('operation', 'slice')
-    input_path = task_data.get('input_path')
-    output_path = task_data.get('output_path')
-
-    if not input_path or not os.path.exists(input_path):
-        raise FileNotFoundError(f"输入文件不存在: {input_path}")
-
-    print(f"处理视频文件 - 操作: {operation}, 输入: {input_path}")
-
-    # 使用ffmpeg处理视频
-    if operation == 'slice':
-        start_time = task_data.get('start_time', 0)
-        duration = task_data.get('duration', 10)
-
-        stream = ffmpeg.input(input_path, ss=start_time, t=duration)
-        stream = ffmpeg.output(stream, output_path, vcodec='libx264', acodec='aac')
-        ffmpeg.run(stream, overwrite_output=True)
-
-    elif operation == 'merge':
-        # 合并多个视频片段
-        inputs = task_data.get('inputs', [])
-        streams = [ffmpeg.input(path) for path in inputs]
-        stream = ffmpeg.concat(*streams)
-        stream = ffmpeg.output(stream, output_path, vcodec='libx264', acodec='aac')
-        ffmpeg.run(stream, overwrite_output=True)
-
-    elif operation == 'add_watermark':
-        watermark_path = task_data.get('watermark_path')
-        if watermark_path and os.path.exists(watermark_path):
-            main = ffmpeg.input(input_path)
-            watermark = ffmpeg.input(watermark_path)
-            stream = ffmpeg.filter([main, watermark], 'overlay', 10, 10)
-            stream = ffmpeg.output(stream, output_path)
-            ffmpeg.run(stream, overwrite_output=True)
+    video_url = task_data.get("video_url")
+    if not video_url:
+        raise ValueError("video_analysis 任务缺少 video_url")
 
     return {
-        'output_path': output_path,
-        'operation': operation,
-        'processed_at': time.time()
+        "inputs": video_url,
+        "parameters": {
+            "task": "video_analysis"
+        }
     }
+
+
+def build_digital_human_payload(task_data: dict) -> dict:
+    """
+    构造数字人任务的 payload
+    """
+    script = task_data.get("script", "")
+    avatar_ref = task_data.get("avatar_ref")  # 可以是 URL 或 ID
+
+    return {
+        "inputs": {
+            "script": script,
+            "avatar": avatar_ref,
+        },
+        "parameters": {
+            "task": "digital_human"
+        }
+    }
+
+
+def build_video_processing_payload(task_data: dict) -> dict:
+    """
+    构造视频处理任务的 payload（切片、合并等）
+    这里不做本地 ffmpeg，而是交给后端模型 / 服务处理
+    """
+    operation = task_data.get("operation", "slice")
+    source = task_data.get("source")  # 可以是 URL 或 ID
+
+    return {
+        "inputs": {
+            "operation": operation,
+            "source": source,
+            "params": task_data.get("params", {}),
+        },
+        "parameters": {
+            "task": "video_processing"
+        }
+    }
+
+
+# =========================
+# 任务状态更新
+# =========================
 
 def update_task_status(task_id, status, progress, result=None, error=None):
     """
-    更新任务状态到Redis
+    更新任务状态到 Redis
+    key: task:{task_id}
     """
     status_data = {
-        'task_id': task_id,
-        'status': status,
-        'progress': progress,
-        'timestamp': time.time()
+        "task_id": task_id,
+        "status": status,
+        "progress": progress,
+        "timestamp": time.time(),
     }
 
-    if result:
-        status_data['result'] = result
-    if error:
-        status_data['error'] = error
+    if result is not None:
+        status_data["result"] = result
+    if error is not None:
+        status_data["error"] = error
 
-    redis_client.setex(f"task:{task_id}", 3600, json.dumps(status_data))  # 1小时过期
+    redis_client.setex(f"task:{task_id}", 3600, json.dumps(status_data))  # 1 小时过期
+
+
+# =========================
+# 主循环：轮询 Redis 任务队列
+# =========================
 
 if __name__ == "__main__":
-    print("AI Worker 已启动，监听任务队列...")
-
-    # 这里应该集成消息队列系统，如Redis Queue、RabbitMQ等
-    # 暂时使用简单的轮询方式模拟
+    print("🚀 AI Worker 已启动，监听任务队列 pending_task:* ...")
 
     while True:
         try:
-            # 检查Redis中的待处理任务
             task_keys = redis_client.keys("pending_task:*")
             for key in task_keys:
-                task_data = json.loads(redis_client.get(key))
-                redis_client.delete(key)  # 移除待处理任务
+                raw = redis_client.get(key)
+                if not raw:
+                    redis_client.delete(key)
+                    continue
 
-                # 处理任务
+                task_data = json.loads(raw)
+                redis_client.delete(key)  # 取出后删除 pending_task
+
                 process_video_task(task_data)
 
         except Exception as e:
-            print(f"Worker错误: {str(e)}")
+            print(f"⚠️ Worker 错误: {str(e)}")
 
         time.sleep(1)  # 每秒检查一次
+
