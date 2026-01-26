@@ -1,8 +1,6 @@
 import os
 import json
 import time
-from pathlib import Path
-
 import redis
 import requests
 
@@ -23,18 +21,17 @@ redis_client = redis.Redis(
 # =========================
 # HuggingFace Inference API 配置
 # =========================
-HF_API_URL = os.getenv("HF_API_URL")  # 例如: https://api-inference.huggingface.co/models/xxx/xxx
-HF_API_KEY = os.getenv("HF_API_KEY")  # 你的 HuggingFace Token
+HF_API_URL = os.getenv("HF_API_URL")
+HF_API_KEY = os.getenv("HF_API_KEY")
 
 if not HF_API_URL or not HF_API_KEY:
-    print("⚠️ 未配置 HF_API_URL 或 HF_API_KEY，Worker 启动后将无法调用模型 API。")
+    print("⚠️ 未配置 HF_API_URL 或 HF_API_KEY，Worker 将无法调用模型 API。")
 
 
+# =========================
+# 通用 HuggingFace API 调用函数
+# =========================
 def call_hf_inference(payload: dict) -> dict:
-    """
-    调用 HuggingFace Inference API 的通用函数
-    payload: 传给模型的参数（prompt、参数等）
-    """
     headers = {
         "Authorization": f"Bearer {HF_API_KEY}",
         "Content-Type": "application/json",
@@ -56,16 +53,40 @@ def call_hf_inference(payload: dict) -> dict:
         }
 
 
-def process_video_task(task_data: dict):
-    """
-    处理“视频相关任务”的统一入口
-    现在不做本地视频处理，只负责：
-    - 解析任务
-    - 调用 HuggingFace Inference API
-    - 回写结果
-    """
-    print(f"🎯 正在处理任务: {task_data}")
+# =========================
+# 图像生成任务 Payload
+# =========================
+def build_image_generation_payload(task_data: dict) -> dict:
+    prompt = task_data.get("prompt", "")
 
+    return {
+        "inputs": prompt,
+        "parameters": {
+            "guidance_scale": 3.5,
+            "num_inference_steps": 28
+        },
+        "options": {
+            "wait_for_model": True
+        }
+    }
+
+
+# =========================
+# 图像生成任务处理
+# =========================
+def process_image_generation(task_data: dict):
+    print(f"🖼️ 正在生成图像: {task_data}")
+
+    payload = build_image_generation_payload(task_data)
+    result = call_hf_inference(payload)
+
+    return result
+
+
+# =========================
+# 任务分发器
+# =========================
+def process_task(task_data: dict):
     task_type = task_data.get("type")
     task_id = task_data.get("task_id")
 
@@ -74,37 +95,17 @@ def process_video_task(task_data: dict):
         return
 
     try:
-        # 根据任务类型构造不同的 payload
-        if task_type == "video_generation":
-            payload = build_video_generation_payload(task_data)
-        elif task_type == "video_analysis":
-            payload = build_video_analysis_payload(task_data)
-        elif task_type == "digital_human":
-            payload = build_digital_human_payload(task_data)
-        elif task_type == "video_processing":
-            payload = build_video_processing_payload(task_data)
+        if task_type == "image_generation":
+            result = process_image_generation(task_data)
         else:
             raise ValueError(f"未知任务类型: {task_type}")
 
-        # 调用 HuggingFace Inference API
-        hf_result = call_hf_inference(payload)
-
-        if hf_result["success"]:
-            update_task_status(
-                task_id,
-                status="completed",
-                progress=100,
-                result=hf_result["data"],
-            )
+        if result["success"]:
+            update_task_status(task_id, "completed", 100, result["data"])
             print(f"✅ 任务完成: {task_id}")
         else:
-            update_task_status(
-                task_id,
-                status="failed",
-                progress=0,
-                error=hf_result["error"],
-            )
-            print(f"❌ 任务失败: {task_id}, 错误: {hf_result['error']}")
+            update_task_status(task_id, "failed", 0, None, result["error"])
+            print(f"❌ 任务失败: {task_id}, 错误: {result['error']}")
 
     except Exception as e:
         print(f"❌ 任务异常: {task_id}, 错误: {str(e)}")
@@ -112,95 +113,9 @@ def process_video_task(task_data: dict):
 
 
 # =========================
-# 各类任务的 payload 构造函数
+# 更新任务状态
 # =========================
-
-def build_video_generation_payload(task_data: dict) -> dict:
-    """
-    构造视频生成任务的 payload
-    这里你可以根据你实际使用的模型 API 格式来调整
-    """
-    prompt = task_data.get("prompt", "")
-    style = task_data.get("style", "cinematic")
-    duration = task_data.get("duration", 5)
-
-    return {
-        "inputs": prompt,
-        "parameters": {
-            "style": style,
-            "duration": duration,
-            # 这里可以根据模型文档添加更多参数
-        },
-        "options": {
-            "wait_for_model": True
-        }
-    }
-
-
-def build_video_analysis_payload(task_data: dict) -> dict:
-    """
-    构造视频分析任务的 payload
-    注意：这里不再读取本地文件路径，而是使用远程 URL 或上游传入的标识
-    """
-    video_url = task_data.get("video_url")
-    if not video_url:
-        raise ValueError("video_analysis 任务缺少 video_url")
-
-    return {
-        "inputs": video_url,
-        "parameters": {
-            "task": "video_analysis"
-        }
-    }
-
-
-def build_digital_human_payload(task_data: dict) -> dict:
-    """
-    构造数字人任务的 payload
-    """
-    script = task_data.get("script", "")
-    avatar_ref = task_data.get("avatar_ref")  # 可以是 URL 或 ID
-
-    return {
-        "inputs": {
-            "script": script,
-            "avatar": avatar_ref,
-        },
-        "parameters": {
-            "task": "digital_human"
-        }
-    }
-
-
-def build_video_processing_payload(task_data: dict) -> dict:
-    """
-    构造视频处理任务的 payload（切片、合并等）
-    这里不做本地 ffmpeg，而是交给后端模型 / 服务处理
-    """
-    operation = task_data.get("operation", "slice")
-    source = task_data.get("source")  # 可以是 URL 或 ID
-
-    return {
-        "inputs": {
-            "operation": operation,
-            "source": source,
-            "params": task_data.get("params", {}),
-        },
-        "parameters": {
-            "task": "video_processing"
-        }
-    }
-
-
-# =========================
-# 任务状态更新
-# =========================
-
 def update_task_status(task_id, status, progress, result=None, error=None):
-    """
-    更新任务状态到 Redis
-    key: task:{task_id}
-    """
     status_data = {
         "task_id": task_id,
         "status": status,
@@ -213,13 +128,12 @@ def update_task_status(task_id, status, progress, result=None, error=None):
     if error is not None:
         status_data["error"] = error
 
-    redis_client.setex(f"task:{task_id}", 3600, json.dumps(status_data))  # 1 小时过期
+    redis_client.setex(f"task:{task_id}", 3600, json.dumps(status_data))
 
 
 # =========================
-# 主循环：轮询 Redis 任务队列
+# Worker 主循环
 # =========================
-
 if __name__ == "__main__":
     print("🚀 AI Worker 已启动，监听任务队列 pending_task:* ...")
 
@@ -233,12 +147,12 @@ if __name__ == "__main__":
                     continue
 
                 task_data = json.loads(raw)
-                redis_client.delete(key)  # 取出后删除 pending_task
+                redis_client.delete(key)
 
-                process_video_task(task_data)
+                process_task(task_data)
 
         except Exception as e:
             print(f"⚠️ Worker 错误: {str(e)}")
 
-        time.sleep(1)  # 每秒检查一次
+        time.sleep(1)
 
