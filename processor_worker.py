@@ -132,9 +132,10 @@ def update_task_status(task_id, status, progress, result=None, error=None):
 
 
 # =========================
+# =========================
 # Worker 主循环
 # =========================
-if __name__ == "__main__":
+def run_worker():
     print("🚀 AI Worker 已启动，监听任务队列 pending_task:* ...")
 
     while True:
@@ -156,3 +157,6 @@ if __name__ == "__main__":
 
         time.sleep(1)
 
+
+if __name__ == "__main__":
+    run_worker()
