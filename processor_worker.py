@@ -13,27 +13,24 @@ redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=Tr
 
 def process_video_task(task_data):
     """
-    处理视频生成和处理任务
-    支持：视频切片、合并、风格迁移、数字人合成等
+    处理视频生成和处理任务（兼容当前主循环传入的完整 task 对象）
+    task_data 期望为 {"task_id":"...","type":"...","payload":{...}}
     """
     print(f"正在处理任务: {task_data}")
 
-    task_type = task_data.get('type')
     task_id = task_data.get('task_id')
+    task_type = task_data.get('type')
+    payload = task_data.get('payload', {})
 
     try:
         if task_type == 'video_generation':
-            # 视频生成任务
-            result = generate_video_with_sora(task_data)
+            result = generate_video_with_sora(task_id, payload)
         elif task_type == 'video_analysis':
-            # 视频分析任务
-            result = analyze_video_style(task_data)
+            result = analyze_video_style(task_id, payload)
         elif task_type == 'digital_human':
-            # 数字人合成任务
-            result = generate_digital_human_video(task_data)
+            result = generate_digital_human_video(task_id, payload)
         elif task_type == 'video_processing':
-            # 视频处理任务（切片、合并等）
-            result = process_video_file(task_data)
+            result = process_video_file(task_id, payload)
         else:
             raise ValueError(f"未知任务类型: {task_type}")
 
@@ -45,40 +42,39 @@ def process_video_task(task_data):
         print(f"任务失败: {task_id}, 错误: {str(e)}")
         update_task_status(task_id, 'failed', 0, None, str(e))
 
-def generate_video_with_sora(task_data):
+def generate_video_with_sora(task_id, payload):
     """
     使用Sora或其他模型生成视频
     这里是模拟实现，实际需要集成真实的AI模型API
     """
-    prompt = task_data.get('prompt', '')
-    style = task_data.get('style', 'cinematic')
-    duration = task_data.get('duration', 5)
+    prompt = payload.get('prompt', '')
+    style = payload.get('style', 'cinematic')
+    duration = payload.get('duration', 5)
 
-    print(f"生成视频 - 提示词: {prompt}, 风格: {style}, 时长: {duration}s")
+    print(f"生成视频 - task_id: {task_id}, 提示词: {prompt}, 风格: {style}, 时长: {duration}s")
 
     # 模拟视频生成过程
     time.sleep(5)  # 模拟处理时间
 
-    # 这里应该调用真实的Sora API或ComfyUI等
-    # 暂时返回模拟结果
+    # 返回模拟结果
     return {
-        'video_url': f'/generated/{task_data.get("task_id")}.mp4',
-        'thumbnail_url': f'/thumbnails/{task_data.get("task_id")}.jpg',
+        'video_url': f'/generated/{task_id}.mp4',
+        'thumbnail_url': f'/thumbnails/{task_id}.jpg',
         'duration': duration,
         'resolution': '1920x1080',
         'format': 'mp4'
     }
 
-def analyze_video_style(task_data):
+def analyze_video_style(task_id, payload):
     """
     分析视频风格
     """
-    video_path = task_data.get('video_path')
+    video_path = payload.get('video_path')
 
     if not video_path or not os.path.exists(video_path):
         raise FileNotFoundError(f"视频文件不存在: {video_path}")
 
-    print(f"分析视频风格: {video_path}")
+    print(f"分析视频风格 - task_id: {task_id}, path: {video_path}")
 
     # 使用OpenCV分析视频
     cap = cv2.VideoCapture(video_path)
@@ -125,39 +121,39 @@ def analyze_video_style(task_data):
         'resolution': f"{int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}"
     }
 
-def generate_digital_human_video(task_data):
+def generate_digital_human_video(task_id, payload):
     """
     生成数字人视频
     需要集成Wav2Lip、SadTalker等模型
     """
-    script = task_data.get('script', '')
-    avatar_image = task_data.get('avatar_image')
+    script = payload.get('script', '')
+    avatar_image = payload.get('avatar_image')
 
-    print(f"生成数字人视频 - 脚本: {script[:50]}...")
+    print(f"生成数字人视频 - task_id: {task_id}, 脚本: {script[:50]}...")
 
     # 模拟数字人生成过程
     time.sleep(10)
 
-    # 这里应该调用真实的数字人生成API
+    # 返回模拟结果
     return {
-        'video_url': f'/digital_human/{task_data.get("task_id")}.mp4',
-        'audio_url': f'/audio/{task_data.get("task_id")}.wav',
+        'video_url': f'/digital_human/{task_id}.mp4',
+        'audio_url': f'/audio/{task_id}.wav',
         'lip_sync_score': 0.95,
         'processing_time': 10
     }
 
-def process_video_file(task_data):
+def process_video_file(task_id, payload):
     """
     处理视频文件：切片、合并、水印等
     """
-    operation = task_data.get('operation', 'slice')
-    input_path = task_data.get('input_path')
-    output_path = task_data.get('output_path')
+    operation = payload.get('operation', 'slice')
+    input_path = payload.get('input_path')
+    output_path = payload.get('output_path')
 
     if not input_path or not os.path.exists(input_path):
         raise FileNotFoundError(f"输入文件不存在: {input_path}")
 
-    print(f"处理视频文件 - 操作: {operation}, 输入: {input_path}")
+    print(f"处理视频文件 - task_id: {task_id}, 操作: {operation}, 输入: {input_path}")
 
     # 使用ffmpeg处理视频
     if operation == 'slice':
