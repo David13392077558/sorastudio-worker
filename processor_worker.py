@@ -7,12 +7,11 @@ import cv2
 from pathlib import Path
 
 # =========================
-# Redis 连接（已修复）
+# Redis 连接（最终修复版）
 # =========================
-# 使用 Render 提供的 External Redis URL
+# redis-py 7.x 会自动根据 rediss:// 启用 TLS
 redis_client = redis.from_url(
     os.environ["REDIS_URL"],
-    ssl=True if os.environ.get("REDIS_TLS") == "true" else False,
     decode_responses=True
 )
 
