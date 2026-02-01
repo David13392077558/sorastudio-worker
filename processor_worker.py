@@ -1,5 +1,4 @@
 import os
-import cv2
 import json
 import time
 import redis
@@ -13,68 +12,75 @@ redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=Tr
 
 def process_video_task(task_data):
     """
-    处理视频生成和处理任务（兼容当前主循环传入的完整 task 对象）
-    task_data 期望为 {"task_id":"...","type":"...","payload":{...}}
+    处理视频生成和处理任务
+    支持：视频切片、合并、风格迁移、数字人合成等
     """
     print(f"正在处理任务: {task_data}")
 
-    task_id = task_data.get('task_id')
     task_type = task_data.get('type')
-    payload = task_data.get('payload', {})
+    task_id = task_data.get('task_id')
 
     try:
         if task_type == 'video_generation':
-            result = generate_video_with_sora(task_id, payload)
+            # 视频生成任务
+            result = generate_video_with_sora(task_data)
         elif task_type == 'video_analysis':
-            result = analyze_video_style(task_id, payload)
+            # 视频分析任务
+            result = analyze_video_style(task_data)
         elif task_type == 'digital_human':
-            result = generate_digital_human_video(task_id, payload)
+            # 数字人合成任务
+            result = generate_digital_human_video(task_data)
         elif task_type == 'video_processing':
-            result = process_video_file(task_id, payload)
+            # 视频处理任务（切片、合并等）
+            result = process_video_file(task_data)
         else:
             raise ValueError(f"未知任务类型: {task_type}")
 
-        # 更新任务状态为完成
-        update_task_status(task_id, 'completed', 100, result)
-        print(f"任务完成: {task_id}")
+        if result["success"]:
+            update_task_status(task_id, "completed", 100, result["data"])
+            print(f"✅ 任务完成: {task_id}")
+        else:
+            update_task_status(task_id, "failed", 0, None, result["error"])
+            print(f"❌ 任务失败: {task_id}, 错误: {result['error']}")
 
     except Exception as e:
         print(f"任务失败: {task_id}, 错误: {str(e)}")
         update_task_status(task_id, 'failed', 0, None, str(e))
 
-def generate_video_with_sora(task_id, payload):
+def generate_video_with_sora(task_data):
     """
     使用Sora或其他模型生成视频
     这里是模拟实现，实际需要集成真实的AI模型API
     """
-    prompt = payload.get('prompt', '')
-    style = payload.get('style', 'cinematic')
-    duration = payload.get('duration', 5)
+    prompt = task_data.get('prompt', '')
+    style = task_data.get('style', 'cinematic')
+    duration = task_data.get('duration', 5)
 
-    print(f"生成视频 - task_id: {task_id}, 提示词: {prompt}, 风格: {style}, 时长: {duration}s")
+    print(f"生成视频 - 提示词: {prompt}, 风格: {style}, 时长: {duration}s")
 
     # 模拟视频生成过程
     time.sleep(5)  # 模拟处理时间
 
-    # 返回模拟结果
+    # 这里应该调用真实的Sora API或ComfyUI等
+    # 暂时返回模拟结果
     return {
-        'video_url': f'/generated/{task_id}.mp4',
-        'thumbnail_url': f'/thumbnails/{task_id}.jpg',
+        'video_url': f'/generated/{task_data.get("task_id")}.mp4',
+        'thumbnail_url': f'/thumbnails/{task_data.get("task_id")}.jpg',
         'duration': duration,
         'resolution': '1920x1080',
         'format': 'mp4'
     }
 
-def analyze_video_style(task_id, payload):
+def analyze_video_style(task_data):
     """
     分析视频风格
     """
-    video_path = payload.get('video_path')
+    video_path = task_data.get('video_path')
 
     if not video_path or not os.path.exists(video_path):
         raise FileNotFoundError(f"视频文件不存在: {video_path}")
 
-    print(f"分析视频风格 - task_id: {task_id}, path: {video_path}")
+    print(f"分析视频风格: {video_path}")
 
     # 使用OpenCV分析视频
     cap = cv2.VideoCapture(video_path)
@@ -121,39 +127,39 @@ def analyze_video_style(task_id, payload):
         'resolution': f"{int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}"
     }
 
-def generate_digital_human_video(task_id, payload):
+def generate_digital_human_video(task_data):
     """
     生成数字人视频
     需要集成Wav2Lip、SadTalker等模型
     """
-    script = payload.get('script', '')
-    avatar_image = payload.get('avatar_image')
+    script = task_data.get('script', '')
+    avatar_image = task_data.get('avatar_image')
 
-    print(f"生成数字人视频 - task_id: {task_id}, 脚本: {script[:50]}...")
+    print(f"生成数字人视频 - 脚本: {script[:50]}...")
 
     # 模拟数字人生成过程
     time.sleep(10)
 
-    # 返回模拟结果
+    # 这里应该调用真实的数字人生成API
     return {
-        'video_url': f'/digital_human/{task_id}.mp4',
-        'audio_url': f'/audio/{task_id}.wav',
+        'video_url': f'/digital_human/{task_data.get("task_id")}.mp4',
+        'audio_url': f'/audio/{task_data.get("task_id")}.wav',
         'lip_sync_score': 0.95,
         'processing_time': 10
     }
 
-def process_video_file(task_id, payload):
+def process_video_file(task_data):
     """
     处理视频文件：切片、合并、水印等
     """
-    operation = payload.get('operation', 'slice')
-    input_path = payload.get('input_path')
-    output_path = payload.get('output_path')
+    operation = task_data.get('operation', 'slice')
+    input_path = task_data.get('input_path')
+    output_path = task_data.get('output_path')
 
     if not input_path or not os.path.exists(input_path):
         raise FileNotFoundError(f"输入文件不存在: {input_path}")
 
-    print(f"处理视频文件 - task_id: {task_id}, 操作: {operation}, 输入: {input_path}")
+    print(f"处理视频文件 - 操作: {operation}, 输入: {input_path}")
 
     # 使用ffmpeg处理视频
     if operation == 'slice':
@@ -188,41 +194,47 @@ def process_video_file(task_id, payload):
     }
 
 def update_task_status(task_id, status, progress, result=None, error=None):
-    """
-    更新任务状态到Redis
-    """
     status_data = {
-        'task_id': task_id,
-        'status': status,
-        'progress': progress,
-        'timestamp': time.time()
+        "task_id": task_id,
+        "status": status,
+        "progress": progress,
+        "timestamp": time.time(),
     }
 
-    if result:
-        status_data['result'] = result
-    if error:
-        status_data['error'] = error
+    if result is not None:
+        status_data["result"] = result
+    if error is not None:
+        status_data["error"] = error
 
-    redis_client.setex(f"task:{task_id}", 3600, json.dumps(status_data))  # 1小时过期
+    redis_client.setex(f"task:{task_id}", 3600, json.dumps(status_data))
 
-if __name__ == "__main__":
-    print("AI Worker 已启动，监听任务队列...")
 
-    # 这里应该集成消息队列系统，如Redis Queue、RabbitMQ等
-    # 暂时使用简单的轮询方式模拟
+# =========================
+# =========================
+# Worker 主循环
+# =========================
+def run_worker():
+    print("🚀 AI Worker 已启动，监听任务队列 pending_task:* ...")
 
     while True:
         try:
-            # 检查Redis中的待处理任务
             task_keys = redis_client.keys("pending_task:*")
             for key in task_keys:
-                task_data = json.loads(redis_client.get(key))
-                redis_client.delete(key)  # 移除待处理任务
+                raw = redis_client.get(key)
+                if not raw:
+                    redis_client.delete(key)
+                    continue
 
-                # 处理任务
-                process_video_task(task_data)
+                task_data = json.loads(raw)
+                redis_client.delete(key)
+
+                process_task(task_data)
 
         except Exception as e:
-            print(f"Worker错误: {str(e)}")
+            print(f"⚠️ Worker 错误: {str(e)}")
 
-        time.sleep(1)  # 每秒检查一次
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    run_worker()
