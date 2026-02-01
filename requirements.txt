@@ -3,4 +3,6 @@ requests
 python-dotenv
 flask
 ffmpeg-python
+opencv-python-headless
+numpy
 
