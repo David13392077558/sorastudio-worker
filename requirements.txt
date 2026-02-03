@@ -5,4 +5,5 @@ flask
 ffmpeg-python
 opencv-python-headless
 numpy
+gunicorn
 
