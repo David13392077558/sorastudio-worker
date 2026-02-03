@@ -6,10 +6,6 @@ import ffmpeg
 import cv2
 from pathlib import Path
 
-# =========================
-# Redis 连接（最终修复版）
-# =========================
-# redis-py 7.x 会自动根据 rediss:// 启用 TLS
 redis_client = redis.from_url(
     os.environ["REDIS_URL"],
     decode_responses=True
@@ -17,9 +13,6 @@ redis_client = redis.from_url(
 
 print("🔌 Redis connected in Worker")
 
-# =========================
-# 任务处理函数
-# =========================
 def process_video_task(task_data):
     print(f"正在处理任务: {task_data}")
 
@@ -46,9 +39,6 @@ def process_video_task(task_data):
         update_task_status(task_id, 'failed', 0, None, str(e))
 
 
-# =========================
-# 模拟视频生成
-# =========================
 def generate_video_with_sora(task_data):
     prompt = task_data.get('prompt', '')
     style = task_data.get('style', 'cinematic')
@@ -67,9 +57,6 @@ def generate_video_with_sora(task_data):
     }
 
 
-# =========================
-# 视频风格分析
-# =========================
 def analyze_video_style(task_data):
     video_path = task_data.get('video_path')
 
@@ -119,9 +106,6 @@ def analyze_video_style(task_data):
     }
 
 
-# =========================
-# 数字人生成（模拟）
-# =========================
 def generate_digital_human_video(task_data):
     script = task_data.get('script', '')
     print(f"生成数字人视频 - 脚本: {script[:50]}...")
@@ -136,9 +120,6 @@ def generate_digital_human_video(task_data):
     }
 
 
-# =========================
-# 视频处理（切片/合并/水印）
-# =========================
 def process_video_file(task_data):
     operation = task_data.get('operation', 'slice')
     input_path = task_data.get('input_path')
@@ -163,9 +144,6 @@ def process_video_file(task_data):
     }
 
 
-# =========================
-# 更新任务状态
-# =========================
 def update_task_status(task_id, status, progress, result=None, error=None):
     status_data = {
         "task_id": task_id,
@@ -182,9 +160,6 @@ def update_task_status(task_id, status, progress, result=None, error=None):
     redis_client.setex(f"task:{task_id}", 3600, json.dumps(status_data))
 
 
-# =========================
-# Worker 主循环
-# =========================
 def run_worker():
     print("🚀 AI Worker 已启动，监听任务队列 pending_task:* ...")
 
@@ -206,7 +181,3 @@ def run_worker():
             print(f"⚠️ Worker 错误: {str(e)}")
 
         time.sleep(1)
-
-
-if __name__ == "__main__":
-    run_worker()
